@@ -1,0 +1,148 @@
+{
+    "info": {
+      "name": "RecettesCollab",
+      "_postman_id": "b3f4c2ab-9a9c-4e7b-9b5a-rcollab",
+      "description": "API Recettes collaboratives (Node.js + MySQL)",
+      "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+      { "key": "baseURL", "value": "http://localhost:4000/api" },
+      { "key": "token", "value": "" },
+      { "key": "userId", "value": "" },
+      { "key": "recipeId", "value": "" }
+    ],
+    "item": [
+      {
+        "name": "Auth / Register",
+        "request": {
+          "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": "{{baseURL}}/auth/register",
+          "body": {
+            "mode": "raw",
+            "raw": "{\"name\":\"Demo\",\"email\":\"demo{{$timestamp}}@example.com\",\"password\":\"password123\"}"
+          }
+        }
+      },
+      {
+        "name": "Auth / Login",
+        "event": [{
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let json = pm.response.json();",
+              "pm.collectionVariables.set('token', json.token || '');",
+              "pm.collectionVariables.set('userId', (json.user && json.user.id) ? json.user.id : '');",
+              "pm.test('Token présent', () => { pm.expect(json.token).to.be.a('string'); });"
+            ],
+            "type": "text/javascript"
+          }
+        }],
+        "request": {
+          "method": "POST",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "url": "{{baseURL}}/auth/login",
+          "body": {
+            "mode": "raw",
+            "raw": "{\"email\":\"demo@example.com\",\"password\":\"password123\"}"
+          }
+        }
+      },
+      {
+        "name": "Recipes / List",
+        "request": {
+          "method": "GET",
+          "url": "{{baseURL}}/recipes?q=omelette"
+        }
+      },
+      {
+        "name": "Recipes / Create",
+        "event": [{
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let json = pm.response.json();",
+              "pm.collectionVariables.set('recipeId', (json.recipe && json.recipe.id) ? json.recipe.id : '');",
+              "pm.test('Recette créée', () => { pm.expect(json.recipe.id).to.be.a('number'); });"
+            ],
+            "type": "text/javascript"
+          }
+        }],
+        "request": {
+          "method": "POST",
+          "header": [
+            { "key": "Content-Type", "value": "application/json" },
+            { "key": "Authorization", "value": "Bearer {{token}}" }
+          ],
+          "url": "{{baseURL}}/recipes",
+          "body": {
+            "mode": "raw",
+            "raw": "{\"title\":\"Pâtes Aglio e Olio\",\"description\":\"Rapide et simple\",\"cuisine_type\":\"Italienne\",\"prep_time_minutes\":12,\"servings\":2,\"instructions\":\"Faire revenir l’ail, ajouter les pâtes.\",\"ingredients\":[{\"name\":\"Pâtes\",\"quantity\":\"200\",\"unit\":\"g\"},{\"name\":\"Ail\",\"quantity\":\"2\",\"unit\":\"gousses\"}]}"
+          }
+        }
+      },
+      {
+        "name": "Recipes / Detail",
+        "request": {
+          "method": "GET",
+          "url": "{{baseURL}}/recipes/{{recipeId}}"
+        }
+      },
+      {
+        "name": "Comments / Create (recipe)",
+        "request": {
+          "method": "POST",
+          "header": [
+            { "key": "Content-Type", "value": "application/json" },
+            { "key": "Authorization", "value": "Bearer {{token}}" }
+          ],
+          "url": "{{baseURL}}/comments/{{recipeId}}",
+          "body": {
+            "mode": "raw",
+            "raw": "{\"content\":\"Super recette !\"}"
+          }
+        }
+      },
+      {
+        "name": "Comments / Delete (commentId à remplacer)",
+        "request": {
+          "method": "DELETE",
+          "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+          "url": "{{baseURL}}/comments/1"
+        }
+      },
+      {
+        "name": "Favorites / Add",
+        "request": {
+          "method": "POST",
+          "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+          "url": "{{baseURL}}/users/{{userId}}/favorites/{{recipeId}}"
+        }
+      },
+      {
+        "name": "Favorites / List (my)",
+        "request": {
+          "method": "GET",
+          "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+          "url": "{{baseURL}}/users/{{userId}}/favorites"
+        }
+      },
+      {
+        "name": "Favorites / Remove",
+        "request": {
+          "method": "DELETE",
+          "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+          "url": "{{baseURL}}/users/{{userId}}/favorites/{{recipeId}}"
+        }
+      },
+      {
+        "name": "Recipes / Delete",
+        "request": {
+          "method": "DELETE",
+          "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+          "url": "{{baseURL}}/recipes/{{recipeId}}"
+        }
+      }
+    ]
+  }
+  
