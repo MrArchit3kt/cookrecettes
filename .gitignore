@@ -1,5 +1,12 @@
+# Node
+node_modules
 
-frontend/recettes-client/node_modules
-frontend/recettes-client/dist
+# Environnements
+.env
+backend/.env
+frontend/.env
 frontend/recettes-client/.env
 
+# Front build
+frontend/recettes-client/node_modules
+frontend/recettes-client/dist

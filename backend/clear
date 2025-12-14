@@ -1,0 +1,9 @@
+[dotenv@17.2.2] injecting env (11) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.2] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+video_url column detected ? true
+→ CLEAR: suppression des anciennes données (favorites, comments, ratings, recipe_ingredients, recipes)
+→ Insertion de 20 recettes…
+→ Dossier images seed: /Users/dev/Desktop/projet app/CookRecettes/backend/uploads/seed
+  … 10/20
+  … 20/20
+✅ Seed terminé.
