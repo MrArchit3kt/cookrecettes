@@ -1,9 +1,26 @@
+// src/pages/Home.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import api from '../api';
 import { Link, useNavigate } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
+
+// Helper slug FR SEO-friendly
+function slugifyTitle(title, id) {
+  const base = (title || '')
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'recette';
+  return `${base}-${id}`;
+}
 
 export default function Home() {
   const nav = useNavigate();
+
+  // ✅ Chemin réel de l’image par défaut (public/image/default.webp)
+  const DEFAULT_IMAGE = '/image/default.webp';
 
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -80,13 +97,13 @@ export default function Home() {
   async function fetchVideos() {
     try {
       const res = await api.get('/recipes/videos', { params: { limit: 8 } });
-      const list = res.data.videos || [];
+      const list = res.data.recipes || res.data.videos || [];
       const fillers = Math.max(0, 3 - list.length);
       const extra = Array.from({ length: fillers }).map((_, i) => ({
         id: `fake-${i}`,
         title: `Short recette #${i + 1}`,
         video_url: '#',
-        image_url: '/images/default-recipe.jpg',
+        image_url: DEFAULT_IMAGE,
         user_name: 'CookRecettes',
       }));
       setVideos([...list, ...extra].slice(0, 3));
@@ -95,7 +112,7 @@ export default function Home() {
         id: `fake-${i}`,
         title: `Short recette #${i + 1}`,
         video_url: '#',
-        image_url: '/images/default-recipe.jpg',
+        image_url: DEFAULT_IMAGE,
         user_name: 'CookRecettes',
       }));
       setVideos(extra);
@@ -107,19 +124,19 @@ export default function Home() {
       const res = await api.get('/favorites'); // [{recipe_id}] ou [{id}]
       const ids = new Set((res.data.recipes || res.data.favorites || []).map(x => x.recipe_id ?? x.id));
       setFavoriteIds(ids);
-    } catch (e) {
+    } catch {
       // non connecté → ignorer
     }
   }
 
   async function toggleFavorite(id) {
     const isFav = favoriteIds.has(id);
-    // Optimistic UI
     setFavoriteIds(prev => {
       const next = new Set(prev);
       if (isFav) next.delete(id); else next.add(id);
       return next;
     });
+
     try {
       if (isFav) await api.delete(`/favorites/${id}`);
       else       await api.post(`/favorites/${id}`);
@@ -132,7 +149,7 @@ export default function Home() {
       });
       if (e?.response?.status === 401) {
         alert('Connecte-toi pour ajouter des favoris 🙂');
-        nav('/login');
+        nav('/connexion');
       } else {
         console.error(e);
       }
@@ -141,18 +158,18 @@ export default function Home() {
 
   async function rateRecipe(id, rating) {
     const r = Math.max(1, Math.min(5, rating));
-    // Optimistic
     setMyRatings(prev => ({ ...prev, [id]: r }));
     setAvgRatings(prev => {
       const cur = typeof prev[id] === 'number' ? prev[id] : r;
       return { ...prev, [id]: (cur * 4 + r) / 5 };
     });
+
     try {
       await api.post(`/recipes/${id}/rate`, { rating: r });
     } catch (e) {
       if (e?.response?.status === 401) {
         alert('Connecte-toi pour noter les recettes 🙂');
-        nav('/login');
+        nav('/connexion');
       } else {
         console.error(e);
       }
@@ -187,22 +204,6 @@ export default function Home() {
     setShowAll(false);
     setLimit(9);
     fetchRecipes({ q: '', ingredients: '', cuisine: '', max_time: '', page: 1, limit: 9 });
-  }
-
-  // ---------- Fallback images ----------
-  const localPlaceholder = '/images/default-recipe.jpg';
-
-  function seededPlaceholder(r, w = 800, h = 600) {
-    const seed =
-      r.id ||
-      Math.abs(String(r.title || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0));
-    const tag = (r.cuisine_type || 'food').replace(/\s+/g, '-').toLowerCase();
-    return `https://picsum.photos/seed/${encodeURIComponent(seed + '-' + tag)}/${w}/${h}`;
-  }
-
-  function finalPlaceholder(r, w = 800, h = 600) {
-    const text = encodeURIComponent(r.title || 'Recette');
-    return `https://placehold.co/${w}x${h}?text=${text}`;
   }
 
   // ===== Post-filtrage & tri côté client =====
@@ -269,7 +270,7 @@ export default function Home() {
 
   // ---- Video cards ----
   const VideoCard = ({ v }) => {
-    const poster = (v.image_url && String(v.image_url).trim()) ? v.image_url : localPlaceholder;
+    const poster = (v.image_url && String(v.image_url).trim()) ? v.image_url : DEFAULT_IMAGE;
     return (
       <div className="col-xl-4 col-md-4 col-12 mb-3">
         <div className="card round-xl overflow-hidden">
@@ -277,12 +278,12 @@ export default function Home() {
             <div style={{ paddingTop: '56.25%' }} />
             <img
               src={poster}
-              alt={v.title || 'Vidéo'}
+              alt={v.title || 'Vidéo de recette'}
               loading="lazy"
               width="640"
               height="360"
               referrerPolicy="no-referrer"
-              onError={(e) => { e.currentTarget.src = localPlaceholder; }}
+              onError={(e) => { e.currentTarget.src = DEFAULT_IMAGE; }}
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
             />
             {v.video_url && (
@@ -327,19 +328,21 @@ export default function Home() {
     </div>
   );
 
-  /* ===== Étoiles dorées ===== */
+  /* ===== Étoiles dorées (radiogroup accessible) ===== */
   const Stars = ({ value = 0, onPick }) => {
     const [hover, setHover] = useState(0);
     const v = hover || value;
-    const gold = '#fbbf24';      // doré
-    const gray = '#9ca3af';      // gris clair
+    const gold = '#fbbf24';
+    const gray = '#9ca3af';
     return (
-      <div className="d-inline-flex align-items-center gap-1">
+      <div className="d-inline-flex align-items-center gap-1" role="radiogroup" aria-label="Noter la recette sur 5">
         {[1,2,3,4,5].map(n => (
           <button
             key={n}
             type="button"
-            aria-label={`${n} étoile${n>1?'s':''}`}
+            role="radio"
+            aria-checked={n === value}
+            aria-label={`${n} étoile${n>1?'s':''} sur 5`}
             onMouseEnter={() => setHover(n)}
             onMouseLeave={() => setHover(0)}
             onClick={() => onPick?.(n)}
@@ -355,9 +358,52 @@ export default function Home() {
     );
   };
 
+  const recipesCount = recipes.length;
+
   return (
     <>
-      {/* ===== HERO ===== */}
+      {/* ===== SEO / Helmet ===== */}
+      <Helmet>
+        <title>CookRecettes | Recettes maison faciles et rapides</title>
+        <meta
+          name="description"
+          content="CookRecettes te permet de trouver, filtrer et enregistrer des recettes maison faciles et rapides : recherche par ingrédients, temps de préparation, type de cuisine, favoris et vidéos."
+        />
+        <meta name="robots" content="index,follow" />
+        <link rel="canonical" href="https://www.cookrecettes.fr/" />
+
+        {/* Open Graph (✅ sans Unsplash) */}
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="CookRecettes | Recettes maison faciles et rapides" />
+        <meta
+          property="og:description"
+          content="Découvre des recettes simples, filtre par ingrédients et enregistre tes plats préférés dans tes favoris sur CookRecettes."
+        />
+        <meta property="og:url" content="https://www.cookrecettes.fr/" />
+        <meta property="og:image" content="https://www.cookrecettes.fr/image/default.webp" />
+
+        {/* JSON-LD : WebSite + SearchAction */}
+        <script type="application/ld+json">
+          {JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'WebSite',
+            name: 'CookRecettes',
+            url: 'https://www.cookrecettes.fr/',
+            description:
+              'Plateforme de partage de recettes de cuisine : recherche avancée, favoris, vidéos et newsletter.',
+            potentialAction: {
+              '@type': 'SearchAction',
+              target: 'https://www.cookrecettes.fr/?q={search_term_string}',
+              'query-input': 'required name=search_term_string',
+            },
+            inLanguage: 'fr-FR',
+            about: 'Recettes de cuisine maison faciles et rapides',
+            numberOfItems: recipesCount || undefined,
+          })}
+        </script>
+      </Helmet>
+
+      {/* ===== HERO (✅ sans Unsplash) ===== */}
       <section className="hero card p-4 p-md-5 round-xl mb-4 d-flex flex-column flex-lg-row align-items-center gap-4">
         <div className="flex-grow-1">
           <h1 className="display-6 fw-bold mb-2">
@@ -368,61 +414,44 @@ export default function Home() {
           </p>
           <div className="d-flex gap-2">
             <a href="#recipes" className="btn btn-primary">Découvrir</a>
-            <Link to="/create" className="btn btn-soft">Ajouter une recette</Link>
+            <Link to="/ajouter-une-recette" className="btn btn-soft">Ajouter une recette</Link>
           </div>
         </div>
-        <div className="hero-thumb" aria-hidden>
+
+        <div className="hero-thumb" aria-hidden="true">
           <img
-            src="https://images.unsplash.com/photo-1512621776951-a57141f2eefd?q=80&w=1400&auto=format&fit=crop"
+            src={DEFAULT_IMAGE}
             alt=""
-            referrerPolicy="no-referrer"
+            onError={(e) => { e.currentTarget.src = DEFAULT_IMAGE; }}
           />
         </div>
       </section>
 
-      <div id="recipes" className="row g-3">
-        {/* ===== Sidebar filtres ===== */}
-        <aside className="col-lg-3">
+      {/* ===== Liste + filtres ===== */}
+      <section id="recipes" className="row g-3" aria-labelledby="titre-liste-recettes">
+        <h2 id="titre-liste-recettes" className="visually-hidden">Liste des recettes</h2>
+
+        {/* Sidebar filtres */}
+        <aside className="col-lg-3" aria-label="Filtres de recherche de recettes">
           <form className="card p-3 round-xl sticky-top" style={{ top: 90 }} onSubmit={onSearch}>
             <div className="mb-3">
-              <label className="form-label text-muted">Recherche</label>
-              <input
-                className="form-control"
-                placeholder="ex: omelette"
-                value={q}
-                onChange={e => setQ(e.target.value)}
-              />
+              <label className="form-label text-muted" htmlFor="search-q">Recherche</label>
+              <input id="search-q" className="form-control" placeholder="ex: omelette" value={q} onChange={e => setQ(e.target.value)} />
             </div>
 
             <div className="mb-3">
-              <label className="form-label text-muted">Ingrédients (inclus)</label>
-              <input
-                className="form-control"
-                placeholder="tomate,oignon"
-                value={ingredients}
-                onChange={e => setIngredients(e.target.value)}
-              />
+              <label className="form-label text-muted" htmlFor="ing-inc">Ingrédients (inclus)</label>
+              <input id="ing-inc" className="form-control" placeholder="tomate,oignon" value={ingredients} onChange={e => setIngredients(e.target.value)} />
             </div>
 
             <div className="mb-3">
-              <label className="form-label text-muted">Ingrédients (exclus)</label>
-              <input
-                className="form-control"
-                placeholder="piment,arachide"
-                value={excludeIngredients}
-                onChange={e => setExcludeIngredients(e.target.value)}
-              />
+              <label className="form-label text-muted" htmlFor="ing-exc">Ingrédients (exclus)</label>
+              <input id="ing-exc" className="form-control" placeholder="piment,arachide" value={excludeIngredients} onChange={e => setExcludeIngredients(e.target.value)} />
             </div>
 
             <div className="mb-3">
-              <label className="form-label text-muted">Cuisine</label>
-              <input
-                className="form-control"
-                list="cuisines"
-                placeholder="Italienne…"
-                value={cuisine}
-                onChange={e => setCuisine(e.target.value)}
-              />
+              <label className="form-label text-muted" htmlFor="cuisine">Cuisine</label>
+              <input id="cuisine" className="form-control" list="cuisines" placeholder="Italienne…" value={cuisine} onChange={e => setCuisine(e.target.value)} />
               <datalist id="cuisines">
                 {CUISINES.map(c => <option key={c} value={c} />)}
               </datalist>
@@ -430,68 +459,38 @@ export default function Home() {
 
             <div className="row g-2 mb-3">
               <div className="col-6">
-                <label className="form-label text-muted">Temps min</label>
-                <input
-                  type="number"
-                  className="form-control"
-                  placeholder="0"
-                  value={minTime}
-                  onChange={e => setMinTime(e.target.value)}
-                />
+                <label className="form-label text-muted" htmlFor="tmin">Temps min</label>
+                <input id="tmin" type="number" className="form-control" placeholder="0" value={minTime} onChange={e => setMinTime(e.target.value)} />
               </div>
               <div className="col-6">
-                <label className="form-label text-muted">Temps max</label>
-                <input
-                  type="number"
-                  className="form-control"
-                  placeholder="30"
-                  value={maxTime}
-                  onChange={e => setMaxTime(e.target.value)}
-                />
+                <label className="form-label text-muted" htmlFor="tmax">Temps max</label>
+                <input id="tmax" type="number" className="form-control" placeholder="30" value={maxTime} onChange={e => setMaxTime(e.target.value)} />
               </div>
             </div>
 
             <div className="mb-3">
-              <label className="form-label text-muted">Portions min</label>
-              <input
-                type="number"
-                className="form-control"
-                placeholder="1"
-                value={minServings}
-                onChange={e => setMinServings(e.target.value)}
-              />
+              <label className="form-label text-muted" htmlFor="min-serv">Portions min</label>
+              <input id="min-serv" type="number" className="form-control" placeholder="1" value={minServings} onChange={e => setMinServings(e.target.value)} />
             </div>
 
             <div className="row g-2 mb-3">
               <div className="col-6">
                 <div className="form-check">
-                  <input
-                    id="f-hasVideo"
-                    className="form-check-input"
-                    type="checkbox"
-                    checked={hasVideo}
-                    onChange={e => setHasVideo(e.target.checked)}
-                  />
+                  <input id="f-hasVideo" className="form-check-input" type="checkbox" checked={hasVideo} onChange={e => setHasVideo(e.target.checked)} />
                   <label className="form-check-label" htmlFor="f-hasVideo">Avec vidéo</label>
                 </div>
               </div>
               <div className="col-6">
                 <div className="form-check">
-                  <input
-                    id="f-hasImage"
-                    className="form-check-input"
-                    type="checkbox"
-                    checked={hasImage}
-                    onChange={e => setHasImage(e.target.checked)}
-                  />
+                  <input id="f-hasImage" className="form-check-input" type="checkbox" checked={hasImage} onChange={e => setHasImage(e.target.checked)} />
                   <label className="form-check-label" htmlFor="f-hasImage">Avec image</label>
                 </div>
               </div>
             </div>
 
             <div className="mb-3">
-              <label className="form-label text-muted">Trier par</label>
-              <select className="form-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
+              <label className="form-label text-muted" htmlFor="tri">Trier par</label>
+              <select id="tri" className="form-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
                 <option value="newest">Plus récentes</option>
                 <option value="time_asc">Temps croissant</option>
                 <option value="time_desc">Temps décroissant</option>
@@ -506,52 +505,43 @@ export default function Home() {
           </form>
         </aside>
 
-        {/* ===== Liste ===== */}
-        <section className="col-lg-9">
+        {/* Liste */}
+        <section className="col-lg-9" aria-label="Résultats des recettes">
           {loading ? (
             <div className="card p-4 round-xl text-muted">Chargement…</div>
           ) : (
             <>
               {filteredSorted.length === 0 ? (
-                <div className="card p-4 round-xl text-muted">
-                  Aucune recette trouvée. Essaie d’ajuster les filtres.
-                </div>
+                <div className="card p-4 round-xl text-muted">Aucune recette trouvée. Essaie d’ajuster les filtres.</div>
               ) : (
                 <>
                   <div className="row">
                     {(showAll ? filteredSorted : filteredSorted.slice(0, limit)).map(r => {
-                      const first = (r.image_url && String(r.image_url).trim()) ? r.image_url : localPlaceholder;
-                      const second = localPlaceholder;
-                      const third = seededPlaceholder(r);
-                      const fourth = finalPlaceholder(r);
+                      const src = (r.image_url && String(r.image_url).trim()) ? r.image_url : DEFAULT_IMAGE;
 
                       const fav = favoriteIds.has(r.id);
                       const my  = myRatings[r.id] || 0;
                       const avg = avgRatings[r.id];
 
+                      const detailSlug = slugifyTitle(r.title, r.id);
+
                       return (
                         <div className="col-xl-4 col-md-6 mb-3" key={r.id}>
-                          <div className="card h-100 round-xl recipe">
+                          <article className="card h-100 round-xl recipe">
                             <div className="position-relative">
                               <img
-                                src={first}
+                                src={src}
                                 className="card-img-top"
                                 alt={r.title}
                                 loading="lazy"
                                 width="800"
                                 height="600"
                                 referrerPolicy="no-referrer"
-                                onError={(e) => {
-                                  const img = e.currentTarget;
-                                  const step = img.dataset.step || '1';
-                                  if (step === '1') { img.dataset.step = '2'; img.src = second; return; }
-                                  if (step === '2') { img.dataset.step = '3'; img.src = third; return; }
-                                  if (step === '3') { img.dataset.step = '4'; img.src = fourth; return; }
-                                  img.remove();
-                                }}
+                                onError={(e) => { e.currentTarget.src = DEFAULT_IMAGE; }}
                                 style={{ objectFit: 'cover' }}
                               />
-                              {/* Cœur favoris (cliquable, au-dessus de l'image) */}
+
+                              {/* Favori */}
                               <button
                                 type="button"
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFavorite(r.id); }}
@@ -563,8 +553,11 @@ export default function Home() {
                                 }}
                                 title={fav ? 'Retirer des favoris' : 'Ajouter aux favoris'}
                                 aria-pressed={fav}
+                                aria-label={fav
+                                  ? `Retirer la recette ${r.title} de mes favoris`
+                                  : `Ajouter la recette ${r.title} à mes favoris`
+                                }
                               >
-                                {/* SVG cœur */}
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill={fav ? '#ef4444' : 'none'} stroke={fav ? '#ef4444' : '#6b7280'} strokeWidth="2">
                                   <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
                                 </svg>
@@ -574,12 +567,10 @@ export default function Home() {
                             <div className="card-body d-flex flex-column">
                               <h5 className="card-title">{r.title}</h5>
 
-                              {/* Notation étoiles (dorées) */}
+                              {/* étoiles */}
                               <div className="d-flex align-items-center gap-2 mb-2">
                                 <Stars value={my} onPick={(n) => rateRecipe(r.id, n)} />
-                                {typeof avg === 'number' && (
-                                  <span className="small text-muted">({avg.toFixed(1)})</span>
-                                )}
+                                {typeof avg === 'number' && <span className="small text-muted">({avg.toFixed(1)})</span>}
                               </div>
 
                               <p className="card-text flex-grow-1">
@@ -593,27 +584,21 @@ export default function Home() {
                                 {r.video_url && <span className="badge">🎬 vidéo</span>}
                               </div>
 
-                              <Link to={`/recipes/${r.id}`} className="btn btn-sm btn-outline-primary mt-auto">
+                              {/* ✅ lien SEO slug-id */}
+                              <Link to={`/recettes/${detailSlug}`} className="btn btn-sm btn-outline-primary mt-auto">
                                 Voir
                               </Link>
                             </div>
-                          </div>
+                          </article>
                         </div>
                       );
                     })}
                   </div>
 
-                  {/* Bouton “Tout voir” */}
                   {canShowMore && (
                     <div className="text-center mt-2">
-                      <button
-                        className="btn btn-soft"
-                        onClick={() => {
-                          setShowAll(true);
-                          fetchRecipes({ limit: 9999, page: 1 });
-                        }}
-                      >
-                        Tout voir ({total})
+                      <button className="btn btn-soft" onClick={() => nav('/recettes')}>
+                        Voir toutes les recettes ({total})
                       </button>
                     </div>
                   )}
@@ -622,10 +607,10 @@ export default function Home() {
             </>
           )}
         </section>
-      </div>
+      </section>
 
       {/* ===== Vidéos ===== */}
-      <section className="mt-5">
+      <section className="mt-5" aria-label="Vidéos de recettes">
         <div className="d-flex justify-content-between align-items-center mb-2">
           <h3 className="m-0">Vidéos</h3>
           {videos.length > 0 && <span className="badge">Featured</span>}
@@ -643,7 +628,7 @@ export default function Home() {
       </section>
 
       {/* ===== Newsletter ===== */}
-      <section className="my-5">
+      <section className="my-5" aria-label="Inscription à la newsletter">
         <div className="card round-xl p-4 p-md-5" style={{ background: '#e85d3c', color: '#fff' }}>
           <div className="fw-bold fs-4 mb-2">
             Sois le premier au courant des nouvelles recettes & des plus vues !
@@ -656,12 +641,17 @@ export default function Home() {
               value={subEmail}
               onChange={(e) => setSubEmail(e.target.value)}
               required
+              aria-label="Adresse email pour recevoir la newsletter"
             />
             <button className="btn btn-warning fw-semibold" disabled={subLoading}>
               {subLoading ? 'Envoi…' : 'S’abonner'}
             </button>
           </form>
-          {subMsg && <div className="mt-2">{subMsg}</div>}
+          {subMsg && (
+            <div className="mt-2" role="status" aria-live="polite">
+              {subMsg}
+            </div>
+          )}
         </div>
       </section>
     </>

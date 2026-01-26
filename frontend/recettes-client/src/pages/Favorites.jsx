@@ -1,7 +1,20 @@
 // src/pages/Favorites.jsx
 import React, { useEffect, useState } from 'react';
-import api from '../api';
 import { Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
+import api from '../api';
+
+// Helper pour générer un slug FR SEO-friendly
+function slugifyTitle(title, id) {
+  const base = (title || '')
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'recette';
+  return `${base}-${id}`;
+}
 
 export default function Favorites() {
   // --- état ---
@@ -15,8 +28,9 @@ export default function Favorites() {
   const [submittingNews, setSubmittingNews] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
 
-  // --- placeholders images (mêmes règles que Home) ---
-  const localPlaceholder = '/images/default-recipe.jpg';
+  // ✅ placeholder local (TON chemin réel)
+  const localPlaceholder = '/image/default.webp';
+
   function seededPlaceholder(r, w = 800, h = 600) {
     const seed =
       r.id ||
@@ -24,25 +38,45 @@ export default function Favorites() {
     const tag = (r.cuisine_type || 'food').replace(/\s+/g, '-').toLowerCase();
     return `https://picsum.photos/seed/${encodeURIComponent(seed + '-' + tag)}/${w}/${h}`;
   }
+
   function finalPlaceholder(r, w = 800, h = 600) {
     const text = encodeURIComponent(r.title || 'Recette');
     return `https://placehold.co/${w}x${h}?text=${text}`;
+  }
+
+  // --- normalisation des réponses backend favoris ---
+  // Certains back renvoient [{recipe_id, ...}] ou [{id, ...}] ou carrément {recipe: {...}}
+  function normalizeFavoriteItem(x) {
+    if (!x) return null;
+
+    // cas: { recipe: { ... } }
+    if (x.recipe && typeof x.recipe === 'object') return x.recipe;
+
+    // cas: { recipe_id: 12, title, ... } (id absent)
+    if (x.recipe_id && !x.id) return { ...x, id: x.recipe_id };
+
+    // cas: déjà une recette
+    if (x.id) return x;
+
+    return null;
   }
 
   // --- fetch favoris (par pages de 9) ---
   async function fetchFavorites(nextPage = 1) {
     setLoading(true);
     try {
-      // Essai #1 : endpoint favoris
       let res;
       try {
+        // endpoint favoris (attendu)
         res = await api.get('/favorites', { params: { page: nextPage, limit: 9 } });
       } catch {
-        // Essai #2 : fallback sur la liste des recettes (pour ne pas casser l’affichage)
+        // fallback (ne doit pas arriver en prod, mais évite de casser)
         res = await api.get('/recipes', { params: { page: nextPage, limit: 9 } });
       }
-  
-      const arr = res.data.favorites || res.data.recipes || [];
+
+      const raw = res.data.favorites || res.data.recipes || [];
+      const arr = raw.map(normalizeFavoriteItem).filter(Boolean);
+
       setItems(prev => (nextPage === 1 ? arr : [...prev, ...arr]));
       setHasMore(arr.length === 9);
       setPage(nextPage);
@@ -54,7 +88,6 @@ export default function Favorites() {
       setLoading(false);
     }
   }
-  
 
   useEffect(() => {
     fetchFavorites(1);
@@ -64,7 +97,6 @@ export default function Favorites() {
   // --- retirer un favori ---
   async function removeFavorite(recipeId) {
     try {
-      // endpoints usuels: DELETE /favorites/:id   (adapte si besoin)
       await api.delete(`/favorites/${recipeId}`);
       setItems(prev => prev.filter(r => r.id !== recipeId));
     } catch (e) {
@@ -92,7 +124,16 @@ export default function Favorites() {
 
   return (
     <>
-      {/* ===== HERO ===== */}
+      <Helmet>
+        <title>Mes recettes favorites | CookRecettes</title>
+        <meta
+          name="description"
+          content="Retrouvez toutes vos recettes favorites sur CookRecettes : plats que vous avez likés, mis de côté, et que vous cuisinez régulièrement."
+        />
+        <meta name="robots" content="index,follow" />
+        <link rel="canonical" href="https://www.cookrecettes.fr/mes-favoris" />
+      </Helmet>
+
       <section
         className="round-xl mb-4 overflow-hidden"
         style={{
@@ -141,18 +182,20 @@ export default function Favorites() {
                     Explore nos recettes et clique sur 💜 pour les garder ici.
                   </p>
                 </div>
-                <Link to="/" className="btn btn-primary">Découvrir des recettes</Link>
-
+                <Link to="/" className="btn btn-primary">
+                  Découvrir des recettes
+                </Link>
               </div>
             </div>
           </div>
         ) : (
           items.map(r => {
-            const first =
-              (r.image_url && String(r.image_url).trim()) ? r.image_url : localPlaceholder;
+            const first = (r.image_url && String(r.image_url).trim()) ? r.image_url : localPlaceholder;
             const second = localPlaceholder;
             const third = seededPlaceholder(r);
             const fourth = finalPlaceholder(r);
+
+            const detailSlug = slugifyTitle(r.title, r.id);
 
             return (
               <div className="col-xl-3 col-lg-4 col-md-6 mb-3" key={r.id}>
@@ -160,8 +203,11 @@ export default function Favorites() {
                   <img
                     src={first}
                     className="card-img-top"
-                    alt={r.title}
+                    alt={r.title || 'Recette favorite'}
                     loading="lazy"
+                    width="800"
+                    height="600"
+                    referrerPolicy="no-referrer"
                     onError={(e) => {
                       const img = e.currentTarget;
                       const step = img.dataset.step || '1';
@@ -170,21 +216,29 @@ export default function Favorites() {
                       if (step === '3') { img.dataset.step = '4'; img.src = fourth; return; }
                       img.remove();
                     }}
+                    style={{ objectFit: 'cover' }}
                   />
+
                   <div className="card-body d-flex flex-column">
                     <h5 className="card-title">{r.title}</h5>
+
                     <p className="card-text flex-grow-1">
                       {r.description ? r.description.substring(0, 120) : '—'}
                     </p>
 
                     <div className="d-flex flex-wrap gap-2 mb-2">
                       {r.cuisine_type && <span className="badge">🍳 {r.cuisine_type}</span>}
-                      {r.prep_time_minutes > 0 && <span className="badge">⏱ {r.prep_time_minutes} min</span>}
-                      {r.servings > 0 && <span className="badge">👥 {r.servings}</span>}
+                      {(Number(r.prep_time_minutes) || 0) > 0 && (
+                        <span className="badge">⏱ {Number(r.prep_time_minutes)} min</span>
+                      )}
+                      {(Number(r.servings) || 0) > 0 && <span className="badge">👥 {Number(r.servings)}</span>}
                     </div>
 
                     <div className="d-flex gap-2 mt-auto">
-                      <Link to={`/recipes/${r.id}`} className="btn btn-sm btn-outline-primary w-100">
+                      <Link
+                        to={`/recettes/${detailSlug}`}
+                        className="btn btn-sm btn-outline-primary w-100"
+                      >
                         Voir
                       </Link>
                       <button
@@ -227,7 +281,9 @@ export default function Favorites() {
       >
         <div className="me-md-4 mb-3 mb-md-0">
           <h4 className="fw-bold mb-1">Ne rate pas les nouvelles pépites</h4>
-          <p className="mb-0 opacity-75">Les tops recettes et nouveautés 1× / semaine.</p>
+          <p className="mb-0 opacity-75">
+            Reçois chaque semaine une sélection de recettes populaires et de nouveautés.
+          </p>
         </div>
 
         {subscribed ? (
@@ -237,7 +293,7 @@ export default function Favorites() {
             <input
               type="email"
               className="form-control me-2"
-              placeholder="Email address"
+              placeholder="Adresse email"
               value={newsletterEmail}
               onChange={e => setNewsletterEmail(e.target.value)}
               required

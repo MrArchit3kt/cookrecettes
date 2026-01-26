@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import api from '../api';
 import { AuthContext } from '../contexts/AuthContext';
 
@@ -60,7 +61,9 @@ export default function Profile() {
     if (!avatarFile) return;
     const fd = new FormData();
     fd.append('file', avatarFile);
-    const up = await api.post('/images/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    const up = await api.post('/images/upload', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     setAvatarUrl(up.data.url);
   }
 
@@ -68,8 +71,10 @@ export default function Profile() {
     e.preventDefault();
     setSavingProfile(true);
     try {
-      // adapte l’endpoint si besoin
-      const res = await api.put('/users/me', { name: name || null, avatar_url: avatarUrl || null });
+      const res = await api.put('/users/me', {
+        name: name || null,
+        avatar_url: avatarUrl || null,
+      });
       const updated = res.data.user || res.data;
       setMe(prev => ({ ...prev, name, avatar_url: avatarUrl }));
       alert('Profil mis à jour ✅');
@@ -86,8 +91,13 @@ export default function Profile() {
     if (newPwd !== newPwd2) return alert('Les deux mots de passe ne correspondent pas.');
     setSavingPwd(true);
     try {
-      await api.post('/auth/change-password', { old_password: oldPwd, new_password: newPwd });
-      setOldPwd(''); setNewPwd(''); setNewPwd2('');
+      await api.post('/auth/change-password', {
+        old_password: oldPwd,
+        new_password: newPwd,
+      });
+      setOldPwd('');
+      setNewPwd('');
+      setNewPwd2('');
       alert('Mot de passe changé ✅');
     } catch (err) {
       alert(err.response?.data?.error || 'Échec du changement de mot de passe.');
@@ -101,10 +111,12 @@ export default function Profile() {
     setNewsletter(val);
     try {
       if (val) await api.post('/newsletter/subscribe', { email: me.email });
-      else     await api.post('/newsletter/unsubscribe', { email: me.email });
+      else await api.post('/newsletter/unsubscribe', { email: me.email });
       setPrefMsg(val ? 'Abonné à la newsletter 🎉' : 'Désabonné de la newsletter.');
     } catch (err) {
-      setPrefMsg(err.response?.data?.error || 'Action newsletter impossible pour le moment.');
+      setPrefMsg(
+        err.response?.data?.error || 'Action newsletter impossible pour le moment.'
+      );
       setNewsletter(!val); // revert
     }
   }
@@ -114,7 +126,6 @@ export default function Profile() {
     if (c !== 'SUPPRIMER') return;
     try {
       await api.delete('/users/me');
-      // on laisse la redirection à la navbar (logout) si tu l’ajoutes ici
       alert('Compte supprimé.');
       window.location.href = '/';
     } catch (err) {
@@ -124,15 +135,35 @@ export default function Profile() {
 
   if (loading) {
     return (
-      <div className="card p-4 round-xl">
-        <div className="skeleton" style={{ height: 24, width: 180, marginBottom: 8 }} />
-        <div className="skeleton" style={{ height: 14, width: 280 }} />
-      </div>
+      <>
+        {/* SEO minimal pendant le chargement */}
+        <Helmet>
+          <title>Profil | CookRecettes</title>
+        </Helmet>
+        <div className="card p-4 round-xl">
+          <div
+            className="skeleton"
+            style={{ height: 24, width: 180, marginBottom: 8 }}
+          />
+          <div className="skeleton" style={{ height: 14, width: 280 }} />
+        </div>
+      </>
     );
   }
 
   return (
     <>
+      {/* ===== SEO / Helmet ===== */}
+      <Helmet>
+        <title>Mon profil | CookRecettes</title>
+        <meta
+          name="description"
+          content="Gérez votre profil CookRecettes : nom, avatar, sécurité du compte, préférences de newsletter et aperçu de vos recettes créées et favoris."
+        />
+        <meta name="robots" content="index,follow" />
+        <link rel="canonical" href="https://www.cookrecettes.fr/profil" />
+      </Helmet>
+
       {/* HERO */}
       <section className="hero card p-4 p-md-5 round-xl mb-4 d-flex flex-column flex-lg-row align-items-center gap-4">
         <div className="d-flex align-items-center gap-3">
@@ -148,18 +179,51 @@ export default function Profile() {
           </div>
         </div>
         <div className="ms-auto d-none d-lg-block">
-          <Link to="/favorites" className="btn btn-soft me-2">⭐ Mes favoris</Link>
-          <Link to="/create" className="btn btn-primary">+ Ajouter une recette</Link>
+          {/* URLs FR */}
+          <Link to="/mes-favoris" className="btn btn-soft me-2">
+            ⭐ Mes favoris
+          </Link>
+          <Link to="/ajouter-une-recette" className="btn btn-primary">
+            + Ajouter une recette
+          </Link>
         </div>
       </section>
 
       {/* Onglets */}
       <div className="card p-3 round-xl mb-3">
         <ul className="nav nav-pills gap-2">
-          <li className="nav-item"><button className={`nav-link ${tab==='overview'?'active':''}`} onClick={()=>setTab('overview')}>Aperçu</button></li>
-          <li className="nav-item"><button className={`nav-link ${tab==='profile'?'active':''}`} onClick={()=>setTab('profile')}>Profil</button></li>
-          <li className="nav-item"><button className={`nav-link ${tab==='security'?'active':''}`} onClick={()=>setTab('security')}>Sécurité</button></li>
-          <li className="nav-item"><button className={`nav-link ${tab==='prefs'?'active':''}`} onClick={()=>setTab('prefs')}>Préférences</button></li>
+          <li className="nav-item">
+            <button
+              className={`nav-link ${tab === 'overview' ? 'active' : ''}`}
+              onClick={() => setTab('overview')}
+            >
+              Aperçu
+            </button>
+          </li>
+          <li className="nav-item">
+            <button
+              className={`nav-link ${tab === 'profile' ? 'active' : ''}`}
+              onClick={() => setTab('profile')}
+            >
+              Profil
+            </button>
+          </li>
+          <li className="nav-item">
+            <button
+              className={`nav-link ${tab === 'security' ? 'active' : ''}`}
+              onClick={() => setTab('security')}
+            >
+              Sécurité
+            </button>
+          </li>
+          <li className="nav-item">
+            <button
+              className={`nav-link ${tab === 'prefs' ? 'active' : ''}`}
+              onClick={() => setTab('prefs')}
+            >
+              Préférences
+            </button>
+          </li>
         </ul>
       </div>
 
@@ -169,7 +233,9 @@ export default function Profile() {
           <div className="col-lg-4">
             <div className="card p-3 round-xl h-100">
               <div className="form-section-title">Statistiques</div>
-              <div className="text-muted small">Un petit aperçu de ton activité.</div>
+              <div className="text-muted small">
+                Un petit aperçu de ton activité.
+              </div>
               <div className="form-divider" />
               <div className="d-flex justify-content-between">
                 <span>Recettes créées</span>
@@ -180,16 +246,26 @@ export default function Profile() {
                 <strong>{me?.favorites_count ?? '—'}</strong>
               </div>
               <div className="mt-3">
-                <Link to="/favorites" className="btn btn-outline-primary w-100">Voir mes favoris</Link>
+                <Link
+                  to="/mes-favoris"
+                  className="btn btn-outline-primary w-100"
+                >
+                  Voir mes favoris
+                </Link>
               </div>
             </div>
           </div>
           <div className="col-lg-8">
             <div className="card p-3 round-xl h-100">
               <div className="form-section-title">Dernières actions</div>
-              <div className="text-muted">Cette section peut afficher tes dernières recettes, commentaires, etc.</div>
+              <div className="text-muted">
+                Cette section peut afficher tes dernières recettes, commentaires,
+                etc.
+              </div>
               <div className="form-divider" />
-              <div className="text-muted small">À implémenter selon ce que tu veux suivre ✨</div>
+              <div className="text-muted small">
+                À implémenter selon ce que tu veux suivre ✨
+              </div>
             </div>
           </div>
         </div>
@@ -210,9 +286,16 @@ export default function Profile() {
                   type="file"
                   accept="image/*"
                   className="form-control"
-                  onChange={e => setAvatarFile(e.target.files?.[0] || null)}
+                  onChange={e =>
+                    setAvatarFile(e.target.files?.[0] || null)
+                  }
                 />
-                <button type="button" className="btn btn-soft" disabled={!avatarFile} onClick={uploadAvatar}>
+                <button
+                  type="button"
+                  className="btn btn-soft"
+                  disabled={!avatarFile}
+                  onClick={uploadAvatar}
+                >
                   Téléverser l’avatar
                 </button>
               </div>
@@ -221,11 +304,19 @@ export default function Profile() {
               <div className="form-section-title">Informations</div>
               <div className="mb-2">
                 <label className="form-label">Nom complet</label>
-                <input className="form-control" value={name} onChange={e=>setName(e.target.value)} />
+                <input
+                  className="form-control"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                />
               </div>
               <div className="mb-2">
                 <label className="form-label">Email</label>
-                <input className="form-control" value={me?.email || ''} disabled />
+                <input
+                  className="form-control"
+                  value={me?.email || ''}
+                  disabled
+                />
               </div>
               <button className="btn btn-primary" disabled={savingProfile}>
                 {savingProfile ? 'Enregistrement…' : 'Enregistrer'}
@@ -241,15 +332,30 @@ export default function Profile() {
           <div className="row g-3">
             <div className="col-md-4">
               <label className="form-label">Mot de passe actuel</label>
-              <input className="form-control" type="password" value={oldPwd} onChange={e=>setOldPwd(e.target.value)} />
+              <input
+                className="form-control"
+                type="password"
+                value={oldPwd}
+                onChange={e => setOldPwd(e.target.value)}
+              />
             </div>
             <div className="col-md-4">
               <label className="form-label">Nouveau mot de passe</label>
-              <input className="form-control" type="password" value={newPwd} onChange={e=>setNewPwd(e.target.value)} />
+              <input
+                className="form-control"
+                type="password"
+                value={newPwd}
+                onChange={e => setNewPwd(e.target.value)}
+              />
             </div>
             <div className="col-md-4">
               <label className="form-label">Confirmer</label>
-              <input className="form-control" type="password" value={newPwd2} onChange={e=>setNewPwd2(e.target.value)} />
+              <input
+                className="form-control"
+                type="password"
+                value={newPwd2}
+                onChange={e => setNewPwd2(e.target.value)}
+              />
             </div>
           </div>
           <div className="mt-3">
@@ -260,8 +366,14 @@ export default function Profile() {
 
           <div className="form-divider" />
           <div className="form-section-title text-danger">Zone dangereuse</div>
-          <p className="text-muted small m-0">Supprimer définitivement ton compte (action irréversible).</p>
-          <button type="button" className="btn btn-outline-danger mt-2" onClick={deleteAccount}>
+          <p className="text-muted small m-0">
+            Supprimer définitivement ton compte (action irréversible).
+          </p>
+          <button
+            type="button"
+            className="btn btn-outline-danger mt-2"
+            onClick={deleteAccount}
+          >
             Supprimer mon compte
           </button>
         </form>
@@ -275,7 +387,9 @@ export default function Profile() {
               <div className="d-flex align-items-center justify-content-between form-panel p-2">
                 <div>
                   <div className="fw-semibold">Thème</div>
-                  <div className="text-muted small">Choisis clair ou sombre pour l’interface.</div>
+                  <div className="text-muted small">
+                    Choisis clair ou sombre pour l’interface.
+                  </div>
                 </div>
                 <ThemeToggle />
               </div>
@@ -284,7 +398,9 @@ export default function Profile() {
               <div className="d-flex align-items-center justify-content-between form-panel p-2">
                 <div>
                   <div className="fw-semibold">Newsletter</div>
-                  <div className="text-muted small">Recevoir les nouvelles recettes & les plus vues.</div>
+                  <div className="text-muted small">
+                    Recevoir les nouvelles recettes & les plus vues.
+                  </div>
                 </div>
                 <div className="form-check form-switch m-0">
                   <input
@@ -306,7 +422,10 @@ export default function Profile() {
 
 /* Petit switch thème réutilisable */
 function ThemeToggle() {
-  const [isLight, setIsLight] = useState(() => document.documentElement.classList.contains('light'));
+  const [isLight, setIsLight] = useState(() =>
+    document.documentElement.classList.contains('light')
+  );
+
   useEffect(() => {
     const saved = localStorage.getItem('theme');
     if (saved) {
@@ -314,6 +433,7 @@ function ThemeToggle() {
       setIsLight(saved === 'light');
     }
   }, []);
+
   const toggle = () => {
     const el = document.documentElement;
     el.classList.toggle('light');
@@ -321,6 +441,7 @@ function ThemeToggle() {
     setIsLight(nowLight);
     localStorage.setItem('theme', nowLight ? 'light' : 'dark');
   };
+
   return (
     <button type="button" className="btn btn-soft" onClick={toggle}>
       {isLight ? '🌙 Sombre' : '☀️ Clair'}

@@ -83,9 +83,10 @@ export default function NavBar() {
         <div className="collapse navbar-collapse" id="navMain">
           {/* Liens */}
           <ul className="navbar-nav me-2 mb-2 mb-lg-0 align-items-lg-center">
-            <li className="nav-item"><NavLink end className="nav-link" to="/">Accueil</NavLink></li>
+            `<li className="nav-item"><NavLink end className="nav-link" to="/">Accueil</NavLink></li>
+            <li className="nav-item"><NavLink className="nav-link" to="/recettes">Recettes</NavLink></li>`
             <li className="nav-item"><NavLink className="nav-link" to="/contact">Contact</NavLink></li>
-            {user && <li className="nav-item"><NavLink className="nav-link" to="/favorites">Favoris</NavLink></li>}
+            {user && <li className="nav-item"><NavLink className="nav-link" to="mes-favoris">Favoris</NavLink></li>}
           </ul>
 
           {/* Recherche */}
@@ -145,8 +146,8 @@ export default function NavBar() {
               </div>
             ) : (
               <>
-                <Link className="btn btn-outline-primary btn-pill" to="/login">Connexion</Link>
-                <Link className="btn btn-primary btn-pill" to="/register">Inscription</Link>
+                <Link className="btn btn-outline-primary btn-pill" to="/connexion">Connexion</Link>
+                <Link className="btn btn-primary btn-pill" to="/inscription">Inscription</Link>
               </>
             )}
           </div>

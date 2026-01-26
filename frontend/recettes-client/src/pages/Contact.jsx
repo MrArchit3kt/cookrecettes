@@ -1,6 +1,7 @@
 // src/pages/Contact.jsx
 import React, { useState } from 'react';
 import api from '../api';
+import { Helmet } from 'react-helmet-async';
 
 export default function Contact() {
   const [form, setForm] = useState({
@@ -64,6 +65,18 @@ export default function Contact() {
 
   return (
     <>
+      {/* SEO / Helmet */}
+      <Helmet>
+        <title>Contact | CookRecettes</title>
+        <meta
+          name="description"
+          content="Contactez l’équipe CookRecettes pour poser une question, signaler un bug ou proposer une amélioration du site de recettes."
+        />
+        <meta name="robots" content="index,follow" />
+        {/* adapte le domaine à ton futur hébergement */}
+        <link rel="canonical" href="https://www.cookrecettes.fr/contact" />
+      </Helmet>
+
       {/* ===== HERO ===== */}
       <section
         className="round-xl mb-4 overflow-hidden"
@@ -76,10 +89,11 @@ export default function Contact() {
           <div className="col-lg-6 p-4 p-lg-5">
             <span className="badge bg-primary-subtle text-primary mb-2">Contact</span>
             <h1 className="display-6 fw-bold mb-2">
-              Dis-nous <span className="text-gradient">tout</span> ✉️
+              Une question sur <span className="text-gradient">CookRecettes</span> ? ✉️
             </h1>
-            <p className="text-muted">
-              Une question, une idée, un bug ? On lit tous les messages et on répond vite.
+            <p className="text-muted mb-0">
+              Support, bug, idée de nouvelle fonctionnalité ou simple retour d’expérience :
+              ce formulaire permet d’échanger directement avec l’équipe.
             </p>
           </div>
           <div className="col-lg-6 d-none d-lg-block">
@@ -98,7 +112,7 @@ export default function Contact() {
 
       <div className="row">
         <div className="col-xl-9 mx-auto">
-          {/* ===== Carte coordonnées / réponse  ===== */}
+          {/* ===== Cartes infos pratiques ===== */}
           <div className="row g-3 mb-3">
             <div className="col-md-6">
               <div className="card round-xl p-3 h-100">
@@ -106,7 +120,7 @@ export default function Contact() {
                 <ul className="list-unstyled mb-0 text-muted">
                   <li>📫 support@cookrecettes.app</li>
                   <li>🐞 Signaler un bug via ce formulaire</li>
-                  <li>💡 Proposer une amélioration</li>
+                  <li>💡 Proposer une amélioration ou une nouvelle rubrique</li>
                 </ul>
               </div>
             </div>
@@ -114,7 +128,8 @@ export default function Contact() {
               <div className="card round-xl p-3 h-100">
                 <h5 className="mb-2">Temps de réponse</h5>
                 <p className="mb-0 text-muted">
-                  On répond généralement sous 24–48h ouvrées. Merci pour ta patience 🙏
+                  Nous répondons en général sous 24–48h ouvrées. Plus votre message est détaillé,
+                  plus nous pouvons vous aider rapidement.
                 </p>
               </div>
             </div>
@@ -123,10 +138,14 @@ export default function Contact() {
           {/* ===== Formulaire ===== */}
           <div className="card round-xl p-3 p-md-4 mb-4">
             <h3 className="mb-3">Nous écrire</h3>
+            <p className="text-muted mb-3">
+              Indiquez le contexte (page concernée, type de recette, message d’erreur éventuel…)
+              afin que nous puissions reproduire le problème ou comprendre au mieux votre demande.
+            </p>
 
             {sent ? (
               <div className="alert alert-success round-xl">
-                Merci ! Ton message a bien été envoyé ✅
+                Merci ! Votre message a bien été envoyé ✅
               </div>
             ) : (
               <form onSubmit={onSubmit}>
@@ -168,7 +187,7 @@ export default function Contact() {
                     className="form-control"
                     value={form.subject}
                     onChange={e => upd('subject', e.target.value)}
-                    placeholder="Ex : Problème d’upload d’image"
+                    placeholder="Ex : Problème d’upload d’image, idée de nouvelle rubrique…"
                     required
                   />
                 </div>
@@ -180,7 +199,7 @@ export default function Contact() {
                     rows="6"
                     value={form.message}
                     onChange={e => upd('message', e.target.value)}
-                    placeholder="Décris-nous le contexte, ce que tu essayais de faire, etc."
+                    placeholder="Décrivez ce que vous essayiez de faire, la page concernée, et le résultat obtenu."
                     required
                   />
                 </div>
@@ -194,7 +213,7 @@ export default function Contact() {
                     onChange={e => upd('agree', e.target.checked)}
                   />
                   <label htmlFor="agree" className="form-check-label">
-                    J’accepte que mes données soient utilisées pour répondre à ma demande.
+                    J’accepte que mes données soient utilisées uniquement pour répondre à ma demande.
                   </label>
                 </div>
 
@@ -216,7 +235,8 @@ export default function Contact() {
             <div className="me-md-4 mb-3 mb-md-0">
               <h4 className="fw-bold mb-1">Reste informé des nouveautés</h4>
               <p className="mb-0 opacity-75">
-                Reçois les nouvelles recettes et les tops de la semaine.
+                Inscrivez-vous pour recevoir les nouvelles recettes, les plus consultées
+                et les mises à jour majeures de CookRecettes.
               </p>
             </div>
 
@@ -225,13 +245,13 @@ export default function Contact() {
             ) : (
               <form onSubmit={onSubscribe} className="d-flex w-100" style={{ maxWidth: 520 }}>
                 <input
-                    type="email"
-                    className="form-control me-2"
-                    placeholder="Email address"
-                    value={newsletterEmail}
-                    onChange={e => setNewsletterEmail(e.target.value)}
-                    required
-                  />
+                  type="email"
+                  className="form-control me-2"
+                  placeholder="votre@email.com"
+                  value={newsletterEmail}
+                  onChange={e => setNewsletterEmail(e.target.value)}
+                  required
+                />
                 <button className="btn btn-dark" disabled={submittingNews}>
                   {submittingNews ? 'Envoi…' : 'S’abonner'}
                 </button>

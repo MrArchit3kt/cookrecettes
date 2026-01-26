@@ -1,13 +1,30 @@
-import React, { useState } from 'react';
+// src/pages/CreateRecipe.jsx
+import React, { useEffect, useMemo, useState } from 'react';
 import api from '../api';
 import { useNavigate } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
+
+// ✅ Image par défaut (chemin EXACT dans ton projet : /public/image/default.webp)
+const DEFAULT_IMAGE = '/image/default.webp';
+
+// helper pour générer un slug propre en français
+function slugifyTitle(title, id) {
+  const base = (title || '')
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'recette';
+  return `${base}-${id}`;
+}
 
 export default function CreateRecipe() {
   const nav = useNavigate();
 
   // Image
   const [title, setTitle] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
+  const [imageUrl, setImageUrl] = useState(''); // URL saisie OU remplie après upload
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
 
@@ -32,29 +49,34 @@ export default function CreateRecipe() {
   const [subscribed, setSubscribed] = useState(false);
 
   function addIngredient() {
-    setIngredients([...ingredients, { name: '', quantity: '', unit: '' }]);
+    setIngredients(prev => [...prev, { name: '', quantity: '', unit: '' }]);
   }
   function removeIngredient(index) {
-    setIngredients(ingredients.filter((_, i) => i !== index));
+    setIngredients(prev => prev.filter((_, i) => i !== index));
   }
   function updateIngredient(index, key, value) {
-    setIngredients(ingredients.map((ing, i) => (i === index ? { ...ing, [key]: value } : ing)));
+    setIngredients(prev => prev.map((ing, i) => (i === index ? { ...ing, [key]: value } : ing)));
   }
 
-  // Upload IMAGE
-  async function handleUpload() {
-    if (!file) return;
+  // ✅ Upload IMAGE (retourne l'URL)
+  async function handleUpload(selectedFile = file) {
+    if (!selectedFile) return '';
     try {
       setUploading(true);
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', selectedFile);
+
       const res = await api.post('/images/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setImageUrl(res.data.url);
+
+      const url = String(res.data?.url || '').trim();
+      if (url) setImageUrl(url);
+      return url;
     } catch (err) {
       console.error(err);
       alert(err?.response?.data?.error || 'Upload échoué.');
+      return '';
     } finally {
       setUploading(false);
     }
@@ -63,19 +85,23 @@ export default function CreateRecipe() {
   // Upload VIDEO
   async function handleVideoUpload() {
     if (!videoFile) return;
+
     const sizeMb = videoFile.size / (1024 * 1024);
     if (sizeMb > MAX_VIDEO_MB) {
       alert(`Vidéo trop volumineuse (${sizeMb.toFixed(1)} Mo). Max ${MAX_VIDEO_MB} Mo.`);
       return;
     }
+
     try {
       setVideoUploading(true);
       const fd = new FormData();
       fd.append('video', videoFile);
+
       const res = await api.post('/videos/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setVideoUrl(res.data.url);
+
+      setVideoUrl(String(res.data?.url || '').trim());
     } catch (err) {
       console.error(err);
       alert(err?.response?.data?.error || 'Upload vidéo échoué.');
@@ -84,30 +110,50 @@ export default function CreateRecipe() {
     }
   }
 
-  // Submit recette
+  // ✅ Submit recette (upload auto + fallback image default)
   async function onSubmit(e) {
     e.preventDefault();
     if (!title.trim()) return alert('Le titre est requis');
+
     setLoading(true);
     try {
+      // 1) URL finale : priorité = URL saisie, sinon upload, sinon default
+      let finalImageUrl = String(imageUrl || '').trim();
+
+      // si pas d’URL mais un fichier choisi → upload auto
+      if (!finalImageUrl && file) {
+        finalImageUrl = String(await handleUpload(file)).trim();
+      }
+
+      // si toujours rien → image par défaut
+      if (!finalImageUrl) finalImageUrl = DEFAULT_IMAGE;
+
       const payload = {
-        title,
-        description,
-        image_url: imageUrl || null,
-        video_url: videoUrl || null,
-        cuisine_type: cuisineType || null,
+        title: title.trim(),
+        description: description || null,
+        image_url: finalImageUrl, // ✅ jamais null
+        video_url: String(videoUrl || '').trim() || null,
+        cuisine_type: String(cuisineType || '').trim() || null,
         prep_time_minutes: Number(prepTime) || 0,
         servings: Number(servings) || 1,
-        instructions,
+        instructions: instructions || null,
         ingredients: ingredients
-          .filter(i => i.name.trim())
-          .map(i => ({ name: i.name.trim(), quantity: i.quantity || null, unit: i.unit || null })),
+          .filter(i => String(i.name || '').trim())
+          .map(i => ({
+            name: String(i.name || '').trim(),
+            quantity: i.quantity || null,
+            unit: i.unit || null,
+          })),
       };
+
       const res = await api.post('/recipes', payload);
-      nav(`/recipes/${res.data.recipe.id}`);
+      const recipe = res.data.recipe;
+      const slug = slugifyTitle(recipe?.title || title, recipe?.id);
+
+      nav(`/recettes/${slug}`, { replace: true });
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || 'Erreur serveur');
+      alert(err?.response?.data?.error || 'Erreur serveur');
     } finally {
       setLoading(false);
     }
@@ -117,24 +163,55 @@ export default function CreateRecipe() {
   async function onSubscribe(e) {
     e.preventDefault();
     if (!newsletterEmail.trim()) return;
+
     try {
       setSubmittingNews(true);
       await api.post('/newsletter/subscribe', { email: newsletterEmail.trim() });
       setSubscribed(true);
+      setNewsletterEmail('');
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || 'Abonnement impossible pour le moment.');
+      alert(err?.response?.data?.error || 'Abonnement impossible pour le moment.');
     } finally {
       setSubmittingNews(false);
     }
   }
 
-  // Préviews
-  const previewSrc = imageUrl || (file ? URL.createObjectURL(file) : '');
-  const videoPreviewSrc = videoUrl || (videoFile ? URL.createObjectURL(videoFile) : '');
+  // ✅ Preview image : URL saisie > fichier local (blob) > default
+  const objectUrl = useMemo(() => (file ? URL.createObjectURL(file) : ''), [file]);
+
+  useEffect(() => {
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [objectUrl]);
+
+  const previewSrc = useMemo(() => {
+    const u = String(imageUrl || '').trim();
+    if (u) return u;
+    if (objectUrl) return objectUrl;
+    return DEFAULT_IMAGE;
+  }, [imageUrl, objectUrl]);
+
+  const videoPreviewSrc = useMemo(() => {
+    const u = String(videoUrl || '').trim();
+    if (u) return u;
+    if (videoFile) return URL.createObjectURL(videoFile);
+    return '';
+  }, [videoUrl, videoFile]);
 
   return (
     <>
+      <Helmet>
+        <title>Ajouter une recette | CookRecettes</title>
+        <meta
+          name="description"
+          content="Ajoutez une nouvelle recette sur CookRecettes : photo, vidéo, ingrédients, temps de préparation et étapes détaillées pour la partager avec la communauté."
+        />
+        <meta name="robots" content="index,follow" />
+        <link rel="canonical" href="https://www.cookrecettes.fr/ajouter-une-recette" />
+      </Helmet>
+
       {/* ===== HERO ===== */}
       <section
         className="round-xl mb-4 overflow-hidden"
@@ -150,8 +227,8 @@ export default function CreateRecipe() {
               Partage ta <span className="text-gradient">meilleure recette</span>
             </h1>
             <p className="text-muted">
-              Ajoute une image (ou laisse vide pour la photo par défaut), une courte vidéo, les ingrédients et les étapes. 
-              Ta recette sera visible par la communauté ✨
+              Ajoute une image (ou laisse vide pour la photo par défaut), une courte vidéo,
+              les ingrédients et les étapes. Ta recette sera ensuite visible par toute la communauté ✨
             </p>
             <a href="#create" className="btn btn-primary mt-2">Commencer</a>
           </div>
@@ -171,12 +248,11 @@ export default function CreateRecipe() {
 
       <div id="create" className="row">
         <div className="col-xl-9 mx-auto">
-          {/* ===== Carte formulaire ===== */}
           <div className="card round-xl p-3 p-md-4 mb-4">
             <h3 className="mb-3">Ajouter une recette</h3>
 
-            {/* Bloc image & vidéo côte à côte */}
             <div className="row">
+              {/* IMAGE */}
               <div className="col-lg-6">
                 <div className="card round-xl p-3 mb-3">
                   <h6 className="mb-3">Image</h6>
@@ -187,10 +263,10 @@ export default function CreateRecipe() {
                       className="form-control"
                       value={imageUrl}
                       onChange={e => setImageUrl(e.target.value)}
-                      placeholder="https://… (laisser vide pour image par défaut)"
+                      placeholder="https://… (laisser vide pour l’image par défaut)"
                     />
                     <div className="form-text">
-                      Laisse vide pour utiliser l’image par défaut.
+                      Si tu ne mets rien, CookRecettes utilisera automatiquement l’image par défaut.
                     </div>
                   </div>
 
@@ -207,39 +283,32 @@ export default function CreateRecipe() {
                         type="button"
                         className="btn btn-outline-primary"
                         disabled={!file || uploading}
-                        onClick={handleUpload}
+                        onClick={() => handleUpload(file)}
                       >
                         {uploading ? 'Envoi…' : 'Téléverser'}
                       </button>
                     </div>
-                    <div className="form-text">Après upload, l’URL sera remplie automatiquement.</div>
+                    <div className="form-text">
+                      Si tu oublies “Téléverser”, l’upload sera fait automatiquement au moment de créer la recette.
+                    </div>
                   </div>
 
-                  {previewSrc && (
-                    <div className="mt-2">
-                      <img
-                        src={previewSrc}
-                        alt="preview"
-                        className="w-100"
-                        style={{ maxHeight: 220, objectFit: 'cover', borderRadius: 12 }}
-                        onError={(e) => {
-                          const fallback = `https://loremflickr.com/800/600/${encodeURIComponent(
-                            cuisineType || 'food'
-                          )},food,dish`;
-                          if (e.currentTarget.src !== fallback) {
-                            e.currentTarget.onerror = null;
-                            e.currentTarget.src = fallback;
-                          }
-                        }}
-                      />
-                    </div>
-                  )}
+                  <div className="mt-2">
+                    <img
+                      src={previewSrc}
+                      alt="Prévisualisation"
+                      className="w-100"
+                      style={{ maxHeight: 220, objectFit: 'cover', borderRadius: 12 }}
+                      onError={(e) => { e.currentTarget.src = DEFAULT_IMAGE; }}
+                    />
+                  </div>
                 </div>
               </div>
 
+              {/* VIDEO */}
               <div className="col-lg-6">
                 <div className="card round-xl p-3 mb-3 h-100">
-                  <h6 className="mb-3">Vidéo courte (optionnel)</h6>
+                  <h6 className="mb-3">Vidéo courte (optionnelle)</h6>
 
                   <div className="mb-2">
                     <label className="form-label">URL de la vidéo (mp4/webm/mov)</label>
@@ -250,7 +319,7 @@ export default function CreateRecipe() {
                       placeholder="https://…"
                     />
                     <div className="form-text">
-                      Hébergement externe accepté, ou upload local ci-dessous (max {MAX_VIDEO_MB} Mo).
+                      Tu peux utiliser une URL hébergée ailleurs, ou envoyer un fichier ci-dessous (max {MAX_VIDEO_MB} Mo).
                     </div>
                   </div>
 
@@ -272,9 +341,7 @@ export default function CreateRecipe() {
                         {videoUploading ? 'Envoi…' : 'Téléverser'}
                       </button>
                     </div>
-                    <div className="form-text">
-                      Formats: MP4, WebM, MOV — poids max {MAX_VIDEO_MB} Mo.
-                    </div>
+                    <div className="form-text">Formats : MP4, WebM, MOV — poids maximal {MAX_VIDEO_MB} Mo.</div>
                   </div>
 
                   {videoPreviewSrc && (
@@ -291,19 +358,13 @@ export default function CreateRecipe() {
               </div>
             </div>
 
+            {/* FORM */}
             <form onSubmit={onSubmit}>
-              {/* Titre */}
               <div className="mb-3">
                 <label className="form-label">Titre *</label>
-                <input
-                  className="form-control"
-                  value={title}
-                  onChange={e => setTitle(e.target.value)}
-                  required
-                />
+                <input className="form-control" value={title} onChange={e => setTitle(e.target.value)} required />
               </div>
 
-              {/* Détails */}
               <div className="card round-xl p-3 mb-3">
                 <div className="mb-2">
                   <label className="form-label">Description</label>
@@ -312,36 +373,22 @@ export default function CreateRecipe() {
                     rows="2"
                     value={description}
                     onChange={e => setDescription(e.target.value)}
+                    placeholder="Ex : salade fraîche idéale pour l’été, prête en 15 minutes."
                   />
                 </div>
 
                 <div className="row">
                   <div className="col-md-4 mb-2">
                     <label className="form-label">Type de cuisine</label>
-                    <input
-                      className="form-control"
-                      value={cuisineType}
-                      onChange={e => setCuisineType(e.target.value)}
-                      placeholder="Italienne, Française…"
-                    />
+                    <input className="form-control" value={cuisineType} onChange={e => setCuisineType(e.target.value)} placeholder="Italienne, Française…" />
                   </div>
                   <div className="col-md-4 mb-2">
                     <label className="form-label">Temps de préparation (min)</label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={prepTime}
-                      onChange={e => setPrepTime(e.target.value)}
-                    />
+                    <input type="number" className="form-control" value={prepTime} onChange={e => setPrepTime(e.target.value)} />
                   </div>
                   <div className="col-md-4 mb-2">
                     <label className="form-label">Portions</label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={servings}
-                      onChange={e => setServings(e.target.value)}
-                    />
+                    <input type="number" className="form-control" value={servings} onChange={e => setServings(e.target.value)} />
                   </div>
                 </div>
 
@@ -352,11 +399,11 @@ export default function CreateRecipe() {
                     rows="5"
                     value={instructions}
                     onChange={e => setInstructions(e.target.value)}
+                    placeholder="Étape 1 : …&#10;Étape 2 : …"
                   />
                 </div>
               </div>
 
-              {/* Ingrédients */}
               <div className="card round-xl p-3 mb-3">
                 <div className="d-flex align-items-center justify-content-between mb-2">
                   <h5 className="m-0">Ingrédients</h5>
@@ -369,38 +416,18 @@ export default function CreateRecipe() {
                   <div className="row g-2 align-items-end mb-2" key={idx}>
                     <div className="col-md-5">
                       <label className="form-label">Nom *</label>
-                      <input
-                        className="form-control"
-                        value={ing.name}
-                        onChange={e => updateIngredient(idx, 'name', e.target.value)}
-                        placeholder="Farine, Lait…"
-                      />
+                      <input className="form-control" value={ing.name} onChange={e => updateIngredient(idx, 'name', e.target.value)} placeholder="Farine, Lait…" />
                     </div>
                     <div className="col-md-3">
                       <label className="form-label">Quantité</label>
-                      <input
-                        className="form-control"
-                        value={ing.quantity}
-                        onChange={e => updateIngredient(idx, 'quantity', e.target.value)}
-                        placeholder="200"
-                      />
+                      <input className="form-control" value={ing.quantity} onChange={e => updateIngredient(idx, 'quantity', e.target.value)} placeholder="200" />
                     </div>
                     <div className="col-md-3">
                       <label className="form-label">Unité</label>
-                      <input
-                        className="form-control"
-                        value={ing.unit}
-                        onChange={e => updateIngredient(idx, 'unit', e.target.value)}
-                        placeholder="g, ml, càs…"
-                      />
+                      <input className="form-control" value={ing.unit} onChange={e => updateIngredient(idx, 'unit', e.target.value)} placeholder="g, ml, càs…" />
                     </div>
                     <div className="col-md-1">
-                      <button
-                        type="button"
-                        className="btn btn-outline-danger"
-                        onClick={() => removeIngredient(idx)}
-                        disabled={ingredients.length === 1}
-                      >
+                      <button type="button" className="btn btn-outline-danger" onClick={() => removeIngredient(idx)} disabled={ingredients.length === 1}>
                         ✕
                       </button>
                     </div>
@@ -409,27 +436,22 @@ export default function CreateRecipe() {
               </div>
 
               <div className="d-flex gap-2">
-                <button className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Envoi…' : 'Créer la recette'}
+                <button className="btn btn-primary" disabled={loading || uploading}>
+                  {loading ? 'Envoi…' : (uploading ? 'Upload image…' : 'Créer la recette')}
                 </button>
                 <a href="/" className="btn btn-soft">Annuler</a>
               </div>
             </form>
           </div>
 
-          {/* ===== Newsletter ===== */}
+          {/* NEWSLETTER */}
           <div
             className="round-xl p-4 p-md-5 mb-5 d-flex flex-column flex-md-row align-items-center justify-content-between"
-            style={{
-              background: 'linear-gradient(90deg, #F97316, #F43F5E)',
-              color: 'white',
-            }}
+            style={{ background: 'linear-gradient(90deg, #F97316, #F43F5E)', color: 'white' }}
           >
             <div className="me-md-4 mb-3 mb-md-0">
               <h4 className="fw-bold mb-1">Reste au courant des nouvelles recettes</h4>
-              <p className="mb-0 opacity-75">
-                Inscris-toi pour recevoir les nouveautés et les recettes les plus vues.
-              </p>
+              <p className="mb-0 opacity-75">Inscrivez-vous pour recevoir les nouveautés et les recettes les plus vues.</p>
             </div>
 
             {subscribed ? (
@@ -439,7 +461,7 @@ export default function CreateRecipe() {
                 <input
                   type="email"
                   className="form-control me-2"
-                  placeholder="Email address"
+                  placeholder="votre@email.com"
                   value={newsletterEmail}
                   onChange={e => setNewsletterEmail(e.target.value)}
                   required

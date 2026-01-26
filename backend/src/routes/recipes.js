@@ -6,37 +6,32 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// ---- Config : image par défaut optionnelle (facultatif)
-const DEFAULT_IMAGE_URL = process.env.DEFAULT_IMAGE_URL || null;
+/**
+ * ✅ Image par défaut STABLE
+ * Elle est servie par le FRONT (public/images/default-recipe.jpg)
+ * => côté DB on stocke "/images/default-recipe.jpg"
+ */
+const DEFAULT_IMAGE_URL = process.env.DEFAULT_IMAGE_URL || '/image/default.webp';
 
-/* ---- Helper: placeholder image stable (loremflickr, seed déterministe) ---- */
-function placeholderFor({ id, cuisine_type, title }, size = { w: 1200, h: 800 }) {
-  const seed =
-    id || Math.abs(String(title || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0));
-  const tag = (cuisine_type || '').trim().toLowerCase().replace(/\s+/g, '-');
-  const keywords = [tag, 'food', 'meal', 'dish', 'plate'].filter(Boolean).join(',');
-  return `https://loremflickr.com/${size.w}/${size.h}/${encodeURIComponent(keywords)}?lock=${seed}`;
-}
-
-/* ---- Helper: compose l'URL finale à renvoyer ---- */
-function finalImageUrl(row, size) {
-  const img = (row.image_url || '').trim();
-  if (img) return img;
-  if (DEFAULT_IMAGE_URL) return DEFAULT_IMAGE_URL;
-  return placeholderFor(row, size);
+/* ---- Helper: URL finale image ---- */
+function finalImageUrl(row) {
+  const img = (row?.image_url || '').trim();
+  return img || DEFAULT_IMAGE_URL;
 }
 
 /* Helper: crée/trouve un ingrédient et renvoie son id */
 async function findOrCreateIngredient(name) {
   const n = (name || '').trim();
   if (!n) return null;
+
   const [rows] = await pool.execute('SELECT id FROM ingredients WHERE name = ?', [n]);
   if (rows.length) return rows[0].id;
+
   const [res] = await pool.execute('INSERT INTO ingredients (name) VALUES (?)', [n]);
   return res.insertId;
 }
 
-/* Helper: savoir si une colonne existe dans la base courante */
+/* Helper: savoir si une colonne existe */
 async function hasColumn(table, column) {
   const [rows] = await pool.query(
     `SELECT COUNT(*) AS cnt
@@ -57,7 +52,7 @@ router.get('/', async (req, res) => {
   try {
     const { q, ingredients, cuisine, max_time, has_video } = req.query;
 
-    const page  = Math.max(parseInt(req.query.page  || '1', 10), 1);
+    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
     const limit = Math.max(parseInt(req.query.limit || '12', 10), 1);
     const offset = (page - 1) * limit;
 
@@ -69,24 +64,38 @@ router.get('/', async (req, res) => {
     if (ingredients) {
       joins.push('JOIN recipe_ingredients ri ON ri.recipe_id = r.id');
       joins.push('JOIN ingredients i ON i.id = ri.ingredient_id');
-      const list = String(ingredients).split(',').map(s => s.trim()).filter(Boolean);
+
+      const list = String(ingredients)
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
       if (list.length) {
         where.push('(' + list.map(() => 'i.name LIKE ?').join(' OR ') + ')');
         list.forEach(s => params.push(`%${s}%`));
       }
     }
 
-    if (q)        { where.push('r.title LIKE ?');            params.push(`%${q}%`); }
-    if (cuisine)  { where.push('r.cuisine_type = ?');        params.push(cuisine); }
-    if (max_time) { where.push('r.prep_time_minutes <= ?');  params.push(parseInt(max_time, 10) || 0); }
+    if (q) {
+      where.push('r.title LIKE ?');
+      params.push(`%${q}%`);
+    }
+    if (cuisine) {
+      where.push('r.cuisine_type = ?');
+      params.push(cuisine);
+    }
+    if (max_time) {
+      where.push('r.prep_time_minutes <= ?');
+      params.push(parseInt(max_time, 10) || 0);
+    }
 
-    // filtre "has_video" uniquement si la colonne existe
+    // filtre "has_video" seulement si colonne existe
     const canUseVideoUrl = await hasColumn('recipes', 'video_url');
     if (has_video && canUseVideoUrl) {
       where.push('COALESCE(r.video_url, "") <> ""');
     }
 
-    const joinSql  = joins.join(' ');
+    const joinSql = joins.join(' ');
     const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
     // total
@@ -107,12 +116,12 @@ router.get('/', async (req, res) => {
     );
 
     rows.forEach(r => {
-      r.image_url = finalImageUrl(r, { w: 800, h: 600 });
+      r.image_url = finalImageUrl(r);
     });
 
     res.json({ recipes: rows, page, limit, total });
   } catch (err) {
-    console.error(err);
+    console.error('GET /recipes error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -137,12 +146,14 @@ router.get('/videos', async (req, res) => {
         ORDER BY r.created_at DESC
         LIMIT ${limit}`
     );
+
     rows.forEach(r => {
-      r.image_url = finalImageUrl(r, { w: 800, h: 600 });
+      r.image_url = finalImageUrl(r);
     });
+
     res.json({ recipes: rows, limit });
   } catch (err) {
-    console.error(err);
+    console.error('GET /recipes/videos error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -161,10 +172,13 @@ router.get('/:id', async (req, res) => {
         WHERE r.id = ?`,
       [recipeId]
     );
-    if (!recipeRows.length) return res.status(404).json({ error: 'Recipe not found' });
-    const recipe = recipeRows[0];
 
-    recipe.image_url = finalImageUrl(recipe, { w: 1200, h: 800 });
+    if (!recipeRows.length) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
+    const recipe = recipeRows[0];
+    recipe.image_url = finalImageUrl(recipe);
 
     const [ings] = await pool.execute(
       `SELECT i.id, i.name, ri.quantity, ri.unit
@@ -185,7 +199,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({ recipe, ingredients: ings, comments });
   } catch (err) {
-    console.error(err);
+    console.error('GET /recipes/:id error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -197,28 +211,50 @@ router.get('/:id', async (req, res) => {
 router.post('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
+
     let {
-      title, description, image_url, video_url, cuisine_type,
-      prep_time_minutes = 0, servings = 1, instructions,
-      ingredients = []
+      title,
+      description,
+      image_url,
+      video_url,
+      cuisine_type,
+      prep_time_minutes = 0,
+      servings = 1,
+      instructions,
+      ingredients = [],
     } = req.body;
 
-    if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
 
-    const normalizedImage = (image_url && String(image_url).trim()) ? image_url.trim() : null;
+    // ✅ image stable si vide
+    const normalizedImage =
+      (image_url && String(image_url).trim()) ? String(image_url).trim() : DEFAULT_IMAGE_URL;
+
+    // Colonnes optionnelles
     const canUseVideoUrl = await hasColumn('recipes', 'video_url');
-    const canUseViews   = await hasColumn('recipes', 'views');
-    const normalizedVideo = (video_url && String(video_url).trim()) ? video_url.trim() : null;
+    const canUseViews = await hasColumn('recipes', 'views');
 
-    // ► Construire dynamiquement l’INSERT selon les colonnes réellement présentes
+    const normalizedVideo =
+      (video_url && String(video_url).trim()) ? String(video_url).trim() : null;
+
+    // INSERT dynamique
     const cols = ['user_id', 'title', 'description', 'image_url'];
-    const phs  = ['?',       '?',     '?',           '?'       ];
+    const phs  = ['?',       '?',     '?',           '?'];
     const vals = [ userId,    title.trim(), description || null, normalizedImage ];
 
-    if (canUseVideoUrl) { cols.push('video_url'); phs.push('?'); vals.push(normalizedVideo); }
+    if (canUseVideoUrl) {
+      cols.push('video_url');
+      phs.push('?');
+      vals.push(normalizedVideo);
+    }
+
     cols.push('cuisine_type');        phs.push('?'); vals.push(cuisine_type || null);
     cols.push('prep_time_minutes');   phs.push('?'); vals.push(parseInt(prep_time_minutes, 10) || 0);
+
     if (canUseViews) { cols.push('views'); phs.push('?'); vals.push(0); }
+
     cols.push('servings');            phs.push('?'); vals.push(parseInt(servings, 10) || 1);
     cols.push('instructions');        phs.push('?'); vals.push(instructions || null);
 
@@ -226,16 +262,11 @@ router.post('/', authMiddleware, async (req, res) => {
     const [result] = await pool.execute(sql, vals);
     const recipeId = result.insertId;
 
-    // image par défaut si non fournie
-    if (!normalizedImage) {
-      const url = DEFAULT_IMAGE_URL || placeholderFor({ id: recipeId, cuisine_type, title }, { w: 800, h: 600 });
-      await pool.execute('UPDATE recipes SET image_url = ? WHERE id = ?', [url, recipeId]);
-    }
-
     // ingrédients
-    for (const ing of (Array.isArray(ingredients) ? ingredients : [])) {
+    for (const ing of Array.isArray(ingredients) ? ingredients : []) {
       const ingId = await findOrCreateIngredient(ing.name);
       if (!ingId) continue;
+
       await pool.execute(
         'INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, `unit`) VALUES (?, ?, ?, ?)',
         [recipeId, ingId, ing.quantity || null, ing.unit || null]
@@ -243,10 +274,11 @@ router.post('/', authMiddleware, async (req, res) => {
     }
 
     const [[created]] = await pool.execute('SELECT * FROM recipes WHERE id = ?', [recipeId]);
-    created.image_url = finalImageUrl(created, { w: 800, h: 600 });
+    created.image_url = finalImageUrl(created);
+
     res.json({ recipe: created });
   } catch (err) {
-    console.error(err);
+    console.error('POST /recipes error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -265,25 +297,33 @@ router.put('/:id', authMiddleware, async (req, res) => {
     if (exists.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Not allowed' });
 
     let {
-      title, description, image_url, video_url, cuisine_type,
-      prep_time_minutes, servings, instructions, ingredients
+      title,
+      description,
+      image_url,
+      video_url,
+      cuisine_type,
+      prep_time_minutes,
+      servings,
+      instructions,
+      ingredients,
     } = req.body;
 
-    const normalizedImage = (image_url && String(image_url).trim()) ? image_url.trim() : null;
+    // ✅ image stable si vide
+    const normalizedImage =
+      (image_url && String(image_url).trim()) ? String(image_url).trim() : DEFAULT_IMAGE_URL;
+
     const canUseVideoUrl = await hasColumn('recipes', 'video_url');
-    const normalizedVideo = (video_url && String(video_url).trim()) ? video_url.trim() : null;
+    const normalizedVideo =
+      (video_url && String(video_url).trim()) ? String(video_url).trim() : null;
 
-    let sql = `UPDATE recipes
-                  SET title = ?, description = ?, image_url = ?, ${canUseVideoUrl ? 'video_url = ?, ' : ''}cuisine_type = ?,
-                      prep_time_minutes = ?, servings = ?, instructions = ?
-                WHERE id = ?`;
+    const sql = `UPDATE recipes
+                    SET title = ?, description = ?, image_url = ?, ${canUseVideoUrl ? 'video_url = ?, ' : ''}cuisine_type = ?,
+                        prep_time_minutes = ?, servings = ?, instructions = ?
+                  WHERE id = ?`;
 
-    const params = [
-      title || null,
-      description || null,
-      normalizedImage
-    ];
+    const params = [title || null, description || null, normalizedImage];
     if (canUseVideoUrl) params.push(normalizedVideo);
+
     params.push(
       cuisine_type || null,
       parseInt(prep_time_minutes, 10) || 0,
@@ -296,9 +336,11 @@ router.put('/:id', authMiddleware, async (req, res) => {
 
     if (Array.isArray(ingredients)) {
       await pool.execute('DELETE FROM recipe_ingredients WHERE recipe_id = ?', [recipeId]);
+
       for (const ing of ingredients) {
         const ingId = await findOrCreateIngredient(ing.name);
         if (!ingId) continue;
+
         await pool.execute(
           'INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, `unit`) VALUES (?, ?, ?, ?)',
           [recipeId, ingId, ing.quantity || null, ing.unit || null]
@@ -307,10 +349,11 @@ router.put('/:id', authMiddleware, async (req, res) => {
     }
 
     const [[updated]] = await pool.execute('SELECT * FROM recipes WHERE id = ?', [recipeId]);
-    updated.image_url = finalImageUrl(updated, { w: 800, h: 600 });
+    updated.image_url = finalImageUrl(updated);
+
     res.json({ recipe: updated });
   } catch (err) {
-    console.error(err);
+    console.error('PUT /recipes/:id error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -324,13 +367,11 @@ router.post('/:id/view', async (req, res) => {
     if (!recipeId) return res.status(400).json({ error: 'Bad id' });
 
     const canUseViews = await hasColumn('recipes', 'views');
-    if (!canUseViews) {
-      // si la colonne n'existe pas dans cette base, on renvoie ok sans maj
-      return res.json({ ok: true, views: null });
-    }
+    if (!canUseViews) return res.json({ ok: true, views: null });
 
     await pool.execute('UPDATE recipes SET views = views + 1 WHERE id = ?', [recipeId]);
     const [[row]] = await pool.execute('SELECT views FROM recipes WHERE id = ?', [recipeId]);
+
     res.json({ ok: true, views: row?.views ?? null });
   } catch (err) {
     console.error('VIEW error:', err);
@@ -350,20 +391,23 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     if (!exists) return res.status(404).json({ error: 'Recipe not found' });
     if (exists.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Not allowed' });
 
-    // supprimer le fichier si c'était un upload local
+    // supprimer le fichier si upload local
     const [[rowImg]] = await pool.execute('SELECT image_url FROM recipes WHERE id = ?', [recipeId]);
-    if (rowImg?.image_url && rowImg.image_url.includes('/uploads/')) {
-      const file = rowImg.image_url.split('/uploads/')[1];
+    const img = (rowImg?.image_url || '').trim();
+
+    if (img.includes('/uploads/')) {
+      const file = img.split('/uploads/')[1];
       if (file) {
-        const p = path.join(__dirname, '..', 'uploads', file);
-        fs.promises.unlink(p).catch(() => {}); // ignore si déjà absent
+        // ✅ ton dossier uploads est à la racine /backend/uploads (selon ton index.js)
+        const p = path.join(__dirname, '..', '..', 'uploads', file);
+        fs.promises.unlink(p).catch(() => {});
       }
     }
 
     await pool.execute('DELETE FROM recipes WHERE id = ?', [recipeId]);
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error('DELETE /recipes/:id error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
